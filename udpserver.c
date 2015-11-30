@@ -42,7 +42,7 @@ int main(int argc, char **argv) {
   char payloadbuf[PKTSIZE]; // Packet payload
   int acknum = 0; // Sequence number of packet that client is expecting
   int seqnum = 0; // Sequence number of packet that server is sending
-  
+  int winSize = 10;
 
   /* check command line arguments */
   if (argc != 2) {
@@ -107,6 +107,8 @@ int main(int argc, char **argv) {
 	    error("ERROR in fopen");
     /* Second loop: send packet, wait for ack, then send next */
       // Construct payload: get file info
+    int count = 0;
+    int numAck = 0;
     while (fgets(payloadbuf, PAYLOADSIZE, (FILE*)fp) != NULL) {
       // Construct header
       memcpy(hdrbuf, &seqnum, HDRSIZE);
@@ -116,21 +118,29 @@ int main(int argc, char **argv) {
       memcpy(packetbuf+HDRSIZE, payloadbuf, PAYLOADSIZE);
       printf("Packet content: %s\n", packetbuf+HDRSIZE);
 
-      // Send packet
-      n = sendto(sockfd, packetbuf, PKTSIZE, 0,
+      // Send packet according to window size
+      if(count < winSize){
+      	n = sendto(sockfd, packetbuf, PKTSIZE, 0,
 		 (struct sockaddr *) &clientaddr, clientlen);
-      if (n < 0) 
+      	if (n < 0) 
 	    error("ERROR in sendto");
-
+	count++;
+      
+      	seqnum++;
+      	if(seqnum == winSize)
+      		seqnum = 0;
+      	numAck++;	
+      }
       // Wait for ACK from client
-      n = recvfrom(sockfd, hdrbuf, HDRSIZE, 0,
-		   (struct sockaddr *) &clientaddr, &clientlen);
-      if (n < 0) 
-	    error("ERROR in recvfrom");
-      memcpy(&acknum, hdrbuf, HDRSIZE);
-      printf("Ack number: %d\n", acknum);
-
-      seqnum++;
+      while(numAck > 0 && recvfrom(sockfd, hdrbuf, HDRSIZE, 0,
+		   (struct sockaddr *) &clientaddr, &clientlen)){
+      //if (n < 0) 
+	    //error("ERROR in recvfrom");
+      	memcpy(&acknum, hdrbuf, HDRSIZE);
+	printf("Ack number: %d\n", acknum);
+      	count--;
+      	numAck--;
+      }
     }
     fclose(fp);
     printf("Successfully sent file!\n");
